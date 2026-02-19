@@ -9,6 +9,7 @@
 #include <iomanip>
 #include <chrono>
 #include <thread>
+#include <filesystem>
 
 constexpr int MAX_TOKENS = 512;
 constexpr size_t MAX_BYTES_PER_TOKEN = 64;
@@ -172,14 +173,25 @@ std::string unescape_json(const std::string& s) {
 }
 
 int main(int argc, char* argv[]) {
-    if (argc != 2) {
-        std::cerr << colored("Error: ", Color::RED + Color::BOLD) << "Missing model path\n";
-        std::cerr << "Usage: " << argv[0] << " <model_path>\n";
+    if (argc < 2 || argc > 3) {
+        std::cerr << colored("Error: ", Color::RED + Color::BOLD) << "Invalid arguments\n";
+        std::cerr << "Usage: " << argv[0] << " <model_path> [image_path]\n";
         std::cerr << "Example: " << argv[0] << " weights/lfm2-1.2B\n";
+        std::cerr << "Example: " << argv[0] << " weights/lfm2-vl-450m assets/example.jpg\n";
         return 1;
     }
 
     const char* model_path = argv[1];
+    std::string image_path;
+    if (argc == 3) {
+        std::filesystem::path image_fs_path(argv[2]);
+        if (!std::filesystem::exists(image_fs_path) || !std::filesystem::is_regular_file(image_fs_path)) {
+            std::cerr << colored("Error: ", Color::RED + Color::BOLD)
+                      << "Image file not found: " << argv[2] << "\n";
+            return 1;
+        }
+        image_path = std::filesystem::absolute(image_fs_path).string();
+    }
 
     std::cout << "\n" << colored("Loading model from ", Color::YELLOW)
               << colored(model_path, Color::CYAN) << colored("...", Color::YELLOW) << "\n";
@@ -192,6 +204,10 @@ int main(int argc, char* argv[]) {
     }
 
     std::cout << colored("Model loaded successfully!\n", Color::GREEN + Color::BOLD);
+    if (!image_path.empty()) {
+        std::cout << colored("Image attached: ", Color::YELLOW)
+                  << colored(image_path, Color::CYAN) << "\n";
+    }
 
     print_header();
 
@@ -228,7 +244,11 @@ int main(int argc, char* argv[]) {
             if (i > 0) messages_json << ",";
             if (i % 2 == 0) {
                 messages_json << "{\"role\":\"user\",\"content\":\""
-                             << escape_json(history[i]) << "\"}";
+                             << escape_json(history[i]) << "\"";
+                if (!image_path.empty() && i == 0) {
+                    messages_json << ",\"images\":[\"" << escape_json(image_path) << "\"]";
+                }
+                messages_json << "}";
             } else {
                 messages_json << "{\"role\":\"assistant\",\"content\":\""
                              << escape_json(history[i]) << "\"}";

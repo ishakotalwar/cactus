@@ -672,6 +672,7 @@ def cmd_run(args):
         os.environ["CACTUS_CLOUD_API_KEY"] = api_key
 
     model_id = args.model_id
+    image_path_arg = getattr(args, 'image', None)
 
     if getattr(args, 'no_cloud_tele', False):
         os.environ["CACTUS_NO_CLOUD_TELE"] = "1"
@@ -697,11 +698,26 @@ def cmd_run(args):
         print_color(RED, f"Error: Chat binary not found at {chat_binary}")
         return 1
 
+    image_path = None
+    if image_path_arg:
+        image_path = Path(image_path_arg).expanduser().resolve()
+        if not image_path.exists():
+            print_color(RED, f"Error: image file not found: {image_path}")
+            return 1
+        if not image_path.is_file():
+            print_color(RED, f"Error: image path is not a file: {image_path}")
+            return 1
+
     os.system('clear' if platform.system() != 'Windows' else 'cls')
     print_color(GREEN, f"Starting Cactus Chat with model: {model_id}")
+    if image_path:
+        print_color(BLUE, f"Using image: {image_path}")
     print()
 
-    os.execv(str(chat_binary), [str(chat_binary), str(weights_dir)])
+    cmd_args = [str(chat_binary), str(weights_dir)]
+    if image_path:
+        cmd_args.append(str(image_path))
+    os.execv(str(chat_binary), cmd_args)
 
 
 DEFAULT_ASR_MODEL_ID = "openai/whisper-small"
@@ -1403,6 +1419,7 @@ def create_parser():
     Optional flags:
     --precision INT4|INT8|FP16         default: INT8
     --token <token>                    HF token (for gated models)
+    --image <image_path>               optional image to attach to first user turn
     --reconvert                        force model weights reconversion from source
 
   -----------------------------------------------------------------
@@ -1532,6 +1549,8 @@ def create_parser():
     run_parser.add_argument('--token', help='HuggingFace API token')
     run_parser.add_argument('--no-cloud-tele', action='store_true',
                             help='Disable cloud telemetry (write to cache only)')
+    run_parser.add_argument('--image', dest='image', default=None,
+                            help='Optional image file path (for VLM models)')
     run_parser.add_argument('--reconvert', action='store_true',
                             help='Download original model and convert (instead of using pre-converted from Cactus-Compute)')
 
