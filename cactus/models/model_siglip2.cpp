@@ -50,10 +50,44 @@ void Siglip2VisionModel::load_weights_to_graph(CactusGraph* gb) {
         if (npu_encoder_ && npu_encoder_->load(npu_encoder_path)) {
             use_npu_encoder_ = true;
 
+            std::vector<int> npu_input_shape = npu_encoder_->get_input_shape();
             std::vector<int> typical_input_shape = {
                 static_cast<int>(config_.max_num_patches),
                 static_cast<int>(config_.vision_embed_dim)
             };
+            if (npu_input_shape.size() >= 2 && npu_input_shape[0] > 0 && npu_input_shape[1] > 0) {
+                typical_input_shape = npu_input_shape;
+
+                Siglip2Preprocessor::Config preprocessor_config;
+                preprocessor_config.patch_size = static_cast<int>(config_.vision_patch_size);
+                preprocessor_config.downsample_factor = static_cast<int>(config_.downsample_factor);
+                preprocessor_config.min_tiles = static_cast<int>(config_.min_tiles);
+                preprocessor_config.max_tiles = static_cast<int>(config_.max_tiles);
+                preprocessor_config.use_thumbnail = config_.use_thumbnail;
+                preprocessor_config.tile_size = static_cast<int>(config_.tile_size);
+                preprocessor_config.max_pixels_tolerance = config_.max_pixels_tolerance;
+                preprocessor_config.do_resize = true;
+                preprocessor_config.do_rescale = true;
+                preprocessor_config.do_normalize = true;
+                preprocessor_config.do_convert_rgb = true;
+                preprocessor_config.do_image_splitting = false;
+                preprocessor_config.rescale_factor = config_.rescale_factor;
+                preprocessor_config.image_mean[0] = config_.image_mean;
+                preprocessor_config.image_mean[1] = config_.image_mean;
+                preprocessor_config.image_mean[2] = config_.image_mean;
+                preprocessor_config.image_std[0] = config_.image_std;
+                preprocessor_config.image_std[1] = config_.image_std;
+                preprocessor_config.image_std[2] = config_.image_std;
+
+                int downsample = std::max(1, static_cast<int>(config_.downsample_factor));
+                int target_image_tokens = npu_input_shape[0] / (downsample * downsample);
+                target_image_tokens = std::max(1, target_image_tokens);
+                preprocessor_config.min_image_tokens = target_image_tokens;
+                preprocessor_config.max_image_tokens = target_image_tokens;
+                preprocessor_config.max_num_patches = npu_input_shape[0];
+
+                preprocessor_ = Siglip2Preprocessor(preprocessor_config);
+            }
             npu_encoder_->preallocate(typical_input_shape, "x", "");
         } else {
             use_npu_encoder_ = false;
@@ -263,62 +297,33 @@ size_t Siglip2VisionModel::forward_vision(
             input_ptr = embed_f16.data();
         }
 
-        size_t npu_patches = total_patches;
-        auto npu_input_shape = npu_encoder_->get_input_shape();
-        if (!npu_input_shape.empty() && npu_input_shape[0] > 0) {
-            npu_patches = static_cast<size_t>(npu_input_shape[0]);
-        }
-
-        std::vector<__fp16> padded_input;
-        const __fp16* npu_input_ptr = input_ptr;
-        if (npu_patches != total_patches) {
-            padded_input.assign(npu_patches * config_.vision_embed_dim, __fp16(0));
-            size_t copy_patches = std::min(total_patches, npu_patches);
-            std::copy_n(input_ptr, copy_patches * config_.vision_embed_dim, padded_input.begin());
-            npu_input_ptr = padded_input.data();
-        }
-
         std::vector<int> input_shape = {
-            static_cast<int>(npu_patches),
+            static_cast<int>(total_patches),
             static_cast<int>(config_.vision_embed_dim)
         };
 
         __fp16* output_buffer = npu_encoder_->get_output_buffer();
         if (output_buffer) {
             size_t elements = npu_encoder_->encode(
-                npu_input_ptr, output_buffer, input_shape, "x", "");
+                input_ptr, output_buffer, input_shape, "x", "");
 
             if (elements > 0) {
                 gb->soft_reset();
                 size_t vision_output = gb->input({total_patches, config_.vision_embed_dim},
                                                   Precision::FP16);
-                if (npu_patches == total_patches) {
-                    gb->set_external_input(vision_output, output_buffer, Precision::FP16);
-                } else {
-                    std::vector<__fp16> trimmed_output(total_patches * config_.vision_embed_dim, __fp16(0));
-                    size_t copy_patches = std::min(total_patches, npu_patches);
-                    std::copy_n(output_buffer, copy_patches * config_.vision_embed_dim, trimmed_output.begin());
-                    gb->set_input(vision_output, trimmed_output.data(), Precision::FP16);
-                }
+                gb->set_external_input(vision_output, output_buffer, Precision::FP16);
                 return vision_output;
             }
         } else {
-            std::vector<__fp16> npu_output(npu_patches * config_.vision_embed_dim);
+            std::vector<__fp16> npu_output(total_patches * config_.vision_embed_dim);
             size_t elements = npu_encoder_->encode(
-                npu_input_ptr, npu_output.data(), input_shape, "x", "");
+                input_ptr, npu_output.data(), input_shape, "x", "");
 
             if (elements > 0) {
                 gb->soft_reset();
                 size_t vision_output = gb->input({total_patches, config_.vision_embed_dim},
                                                   Precision::FP16);
-                if (npu_patches == total_patches) {
-                    gb->set_input(vision_output, npu_output.data(), Precision::FP16);
-                } else {
-                    std::vector<__fp16> trimmed_output(total_patches * config_.vision_embed_dim, __fp16(0));
-                    size_t copy_patches = std::min(total_patches, npu_patches);
-                    std::copy_n(npu_output.data(), copy_patches * config_.vision_embed_dim, trimmed_output.begin());
-                    gb->set_input(vision_output, trimmed_output.data(), Precision::FP16);
-                }
+                gb->set_input(vision_output, npu_output.data(), Precision::FP16);
                 return vision_output;
             }
         }

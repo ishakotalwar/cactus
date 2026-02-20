@@ -83,11 +83,11 @@ struct Config {
     uint32_t max_tiles = 10;
     bool use_thumbnail = true;
     uint32_t min_image_tokens = 64;
-    uint32_t max_image_tokens = 64;
-    uint32_t max_num_patches = 256;
+    uint32_t max_image_tokens = 256;
+    uint32_t max_num_patches = 1024;
     uint32_t tile_size = 512;
     float max_pixels_tolerance = 2.0f;
-    bool do_image_splitting = false;
+    bool do_image_splitting = true;
     bool encoder_act_gelu = false;
     bool decoder_act_gelu = false;
     uint32_t num_encoder_layers = 0;
@@ -595,15 +595,15 @@ public:
         int max_tiles = 10;
     bool use_thumbnail = true;
         int min_image_tokens = 64;
-        int max_image_tokens = 64;
-        int max_num_patches = 256;
+        int max_image_tokens = 256;
+        int max_num_patches = 1024;
         int tile_size = 512;
         float max_pixels_tolerance = 2.0f;
         bool do_resize = true;
         bool do_rescale = true;
         bool do_normalize = true;
         bool do_convert_rgb = true;
-        bool do_image_splitting = false;
+        bool do_image_splitting = true;
         float rescale_factor = 1.0f / 255.0f;
         float image_mean[3] = {0.5f, 0.5f, 0.5f};
         float image_std[3] = {0.5f, 0.5f, 0.5f};
@@ -802,7 +802,6 @@ namespace index {
             void *mapped_index_, *mapped_data_;
             size_t index_file_size_, data_file_size_;
     };
-} // namespace index
-
+} 
 }
 }

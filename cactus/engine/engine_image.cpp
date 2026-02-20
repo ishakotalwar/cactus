@@ -56,6 +56,12 @@ std::pair<int,int> Siglip2Preprocessor::smart_resize(int height, int width) {
     const int total_factor = config_.patch_size * config_.downsample_factor;
     auto [min_pixels, max_pixels] = compute_pixel_limits();
 
+    if (min_pixels == max_pixels) {
+        int target_side = static_cast<int>(std::sqrt(static_cast<double>(max_pixels)));
+        target_side = std::max(total_factor, round_by_factor(target_side, total_factor));
+        return {target_side, target_side};
+    }
+
     int h_bar = std::max(total_factor, round_by_factor(height, total_factor));
     int w_bar = std::max(total_factor, round_by_factor(width, total_factor));
     
@@ -599,5 +605,4 @@ Siglip2Preprocessor::PreprocessedImage Siglip2Preprocessor::pad_patches(
 
 } // namespace engine
 } // namespace cactus
-
 
